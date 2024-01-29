@@ -1,6 +1,6 @@
 # Folders
-**/Backup
-**/Plots
+**/backup
+**/plots
 
 # Files
 *.pkl
