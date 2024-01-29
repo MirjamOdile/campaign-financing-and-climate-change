@@ -35,6 +35,9 @@
 .AppleDouble
 .LSOverride
 
+# Virtual environment
+.venv
+
 # Thumbnails
 ._*
 
