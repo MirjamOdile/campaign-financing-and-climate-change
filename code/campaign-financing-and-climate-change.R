@@ -9,7 +9,9 @@ library(lmtest)       # Significance testing
 library(car)          # Assumptions testing (vif)
 library(ggpubr)       # Arrange plots
 library(stargazer)    # Descriptives/model export
-library(DescTools)    # confidence intervals
+library(DescTools)    # Confidence intervals
+library(magrittr)     # Advanced piping
+
 
 # Set the working directory to the data folder
 getwd()
@@ -426,28 +428,63 @@ hearings %>% filter(speaking == 1) %>% nrow()
 hearings %>% filter(speaking == 0) %>% nrow()
 # >> 2357 MoC_hearings not talking
 
+# Paragraphs
 hearings %>% filter(speaking == 1) %>% 
   ggplot(aes(n_paragraphs)) + geom_histogram()
 hearings %>% filter(speaking == 1) %>% 
   ggplot(aes(n_paragraphs_10plus)) + geom_histogram()
 
-# Campaign contributions
+## 3.2 Campaign contributions ----
+
+# Campaign contributions in million $ 
+# (Note: cc need grouping by year as data reported by year)
 
 hearings %>%
-  filter(party == "D") %>% 
-  select(cc_fossilfuel, cc_total) %>%
-  mutate(cc_per = cc_fossilfuel/cc_total*100) %>% 
+  select(year, cc_fossilfuel, cc_total, party, CID, congress) %>%
+  distinct() %>%
+  group_by(congress) %>% 
+  summarise(cc_fossilfuel = sum(cc_fossilfuel)/10,
+            cc_total = sum(cc_total)/10,
+            n = n()) %>% 
+  mutate(per_moc_in_K_dollar = cc_fossilfuel/n*1000,
+         percent_of_total = cc_fossilfuel/cc_total*100)
+
+# Total campaign contributions by party in 100K $ 
+hearings %>%
+  select(year, cc_fossilfuel, cc_total, party, CID, congress) %>%
   distinct() %>% 
+  group_by(party) %>% 
+  summarise(cc_fossilfuel_total = sum(cc_fossilfuel)) %>% 
+  ungroup() %>% 
+  mutate(cc_fossilfuel_party_proportion = cc_fossilfuel_total/sum(cc_fossilfuel_total))
+
+# Average campaign contributions by party per congressional term in 100K $
+# (mean and median)
+hearings %>%
+  select(year, cc_fossilfuel, cc_total, party, CID, congress) %>%
+  distinct() %>%
+  group_by(congress, CID, party) %>% 
+  summarise(cc_fossilfuel = sum(cc_fossilfuel)) %>% 
+  group_by(party) %>% 
+  summarise(cc_fossilfuel_mean = mean(cc_fossilfuel),
+            cc_fossilfuel_median = median(cc_fossilfuel))
+
+# Descriptives by party
+hearings %>%
+  filter(party == "D") %>% 
+  select(year, cc_fossilfuel, cc_total, party, CID, congress) %>%
+  distinct() %>% 
+  mutate(cc_per = cc_fossilfuel/cc_total*100) %>% 
   describe()
 
 hearings %>%
   filter(party == "R") %>% 
-  select(cc_fossilfuel, cc_total) %>%
-  mutate(cc_per = cc_fossilfuel/cc_total*100) %>% 
+  select(year, cc_fossilfuel, cc_total, party, CID, congress) %>%
   distinct() %>% 
+  mutate(cc_per = cc_fossilfuel/cc_total*100) %>% 
   describe()
 
-## 3.2 Variables ----
+## 3.3 Dependent variables ----
 
 # Attendance (Mod 1)
 
@@ -517,9 +554,9 @@ ggarrange(ggplot(aes(x = pred_4, fill = party),
             facet_wrap( ~ party),
           nrow = 2)
 
-### 3.2.1 Plots: Claims ----
+### 3.3.1 Plots: Claims ----
 
-#### 3.2.1.1 Totals per year - hearings, paragraphs, claims ----
+#### 3.3.1.1 Totals per year - hearings, paragraphs, claims ----
 
 total_hearings <- hearings %>%
   select(year, hearing_id) %>% distinct() %>% group_by(year) %>% 
@@ -588,7 +625,7 @@ total_cc <- hearings %>%
   select(year, party, CID, cc_fossilfuel) %>% 
   distinct() %>% 
   group_by(year, party) %>% 
-  summarise(cc_fossilfuel = sum(cc_fossilfuel)/10) %>% 
+  summarise(cc_fossilfuel = mean(cc_fossilfuel)*100) %>% 
   ggplot(aes(x = year, cc_fossilfuel, color = party)) +
   geom_line() +
   theme_bw() +
@@ -604,15 +641,14 @@ plot_totals <-
   ggarrange(total_hearings + theme(axis.title.x = element_blank()),
             total_attendance + theme(axis.title.x = element_blank()),
             total_participation + theme(axis.title.x = element_blank()), 
-            total_claims + theme(axis.title.x = element_blank()),
-            total_cc,
+            total_claims,
             ncol = 1, common.legend = T, align = "v",
-            heights = c(2,2,2,2,2)); plot_totals
+            heights = c(2,2,2,2)); plot_totals
 
 ggsave(filename = file.path("../plots","plot_totals.png"), plot_totals,
        width = 1900, height = 2200, unit = "px", dpi = 300)
 
-#### 3.2.1.2 Average per MoC total vs proportion - boosted by party ----
+#### 3.3.1.2 Average per MoC total vs proportion - boosted by party ----
 
 hearings %>% filter(speaking == 1) %>%
   summarise(n_paragraphs = sum(n_paragraphs))
@@ -670,7 +706,7 @@ ggsave(filename = file.path("../plots","plot_p4_boosted_party.png"),
        width = 1300, height = 1000, unit = "px", dpi = 300)
 
 
-#### 3.2.1.3 Average per MoC total vs proportion - raw predictions ----
+#### 3.3.1.3 Average per MoC total vs proportion - raw predictions ----
 
 hearings %>% filter(speaking == 1) %>%
   group_by(year, party) %>%
@@ -721,7 +757,14 @@ ggsave(filename = file.path("../plots","plot_p4_raw_appendix.png"),
        plot_p4_raw_appendix,
        width = 1300, height = 1000, unit = "px", dpi = 300)
 
-#### 3.2.1.4 Attendance:Participation:Claim-making - corrected predictions ----
+#### 3.3.1.4 Attendance:Participation:Claim-making - corrected predictions ----
+
+hearings %>%
+  select(congress, party, CID, cc_fossilfuel, year) %>% 
+  distinct() %>% 
+  select(congress, party, cc_fossilfuel) %>% 
+  group_by(party) %>% 
+  summarise(cc_fossilfuel = mean(cc_fossilfuel))
 
 plot_individuals_boxplot <- 
   rbind(hearings %>%
@@ -741,8 +784,10 @@ plot_individuals_boxplot <-
           mutate(type = "Claim-making (N)") %>% 
           rename(value = pred_4_boosted_party),
         hearings %>%
-          select(congress, party, CID, cc_fossilfuel) %>% 
-          distinct() %>% 
+          select(congress, party, CID, cc_fossilfuel, year) %>% 
+          distinct() %>%
+          group_by(congress, party, CID) %>% 
+          summarise(cc_fossilfuel = sum(cc_fossilfuel)) %>% 
           select(congress, party, cc_fossilfuel) %>% 
           mutate(cc_fossilfuel = cc_fossilfuel*100,
                  type = "Campaign contributions\n(in $1K)") %>% 
@@ -782,8 +827,10 @@ plot_individuals_mean <-
           mutate(type = "Claim-making (N)") %>% 
           rename(value = pred_4_boosted_party),
         hearings %>%
-          select(congress, party, CID, cc_fossilfuel) %>% 
+          select(congress, party, CID, cc_fossilfuel, year) %>% 
           distinct() %>% 
+          group_by(congress, party, CID) %>% 
+          summarise(cc_fossilfuel = sum(cc_fossilfuel)) %>% 
           select(congress, party, cc_fossilfuel) %>% 
           mutate(cc_fossilfuel = cc_fossilfuel*100,
                  type = "Campaign contributions\n(in $1K)") %>% 
@@ -872,14 +919,13 @@ c(layer_data(plot_individuals_boxplot, i = 1L)[7]$outliers[[29]],
   layer_data(plot_individuals_boxplot, i = 1L)[7]$outliers[[31]],
   layer_data(plot_individuals_boxplot, i = 1L)[7]$outliers[[32]]) %>% hist()
 
-library(magrittr)
 hearings %>% filter(cc_fossilfuel>=4) %>% 
   select(congress, name, party) %>% distinct() %$% 
   table(party)
 
-### 3.2.2 Plots: Sub-claims ----
+### 3.3.2 Plots: Sub-claims ----
 
-#### 3.2.2.1 Average per MoC proportion - boosted by party ----
+#### 3.3.2.1 Average per MoC proportion - boosted by party ----
 
 hearings %>% filter(speaking == 1) %>%
   select(year, party, n_paragraphs, pred_4_1_boosted_party, 
@@ -928,7 +974,7 @@ ggsave(filename = file.path("../plots","plot_p4sub_boosted_party.png"),
        plot_p4_boosted_party_sub,
        width = 1900, height = 1500, unit = "px", dpi = 300)
 
-#### 3.2.1.2 Average per MoC proportion - raw predictions ----
+#### 3.3.1.2 Average per MoC proportion - raw predictions ----
 
 plot_p4sub_raw_appendix <- hearings %>% filter(speaking == 1) %>%
   select(year, party, n_paragraphs, pred_4_1, 
